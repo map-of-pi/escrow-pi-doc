@@ -1,0 +1,514 @@
+openapi: 3.1.0
+info:
+  title: EscrowPi Developer APIs
+  version: 0.2.0
+  description: |
+    Phase 2 specification covering developer button retrieval, invocation lifecycle,
+    and Pi user validation requirements. All logic endpoints enforce Pi Browser
+    authentication parity and single-use invocation tokens.
+servers:
+  - url: https://staging.api.escrowpi.com
+    description: Staging environment
+  - url: https://api.escrowpi.com
+    description: Production environment
+  - url: http://localhost:4000
+    description: Local developer proxy
+  - url: http://localhost:8002
+    description: Local developer backend (escrow-pi-backend)
+security:
+  - AppIdHeader: []
+    ApiKeyHeader: []
+paths:
+  /buttons/pay:
+    get:
+      summary: Retrieve "Pay with EscrowPi" button metadata
+      description: Issues the Pay button asset plus a single-use invocation token for payer flows.
+      tags: [Buttons]
+      operationId: getPayButton
+      parameters:
+        - $ref: '#/components/parameters/InvocationHint'
+      responses:
+        '200':
+          description: Button asset and invocation token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ButtonResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /buttons/receive:
+    get:
+      summary: Retrieve "Receive with EscrowPi" button metadata
+      description: Issues the Receive button asset + invocation token for payee-initiated requests.
+      tags: [Buttons]
+      operationId: getReceiveButton
+      parameters:
+        - $ref: '#/components/parameters/InvocationHint'
+      responses:
+        '200':
+          description: Button asset and invocation token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ButtonResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /buttons/myescrow:
+    get:
+      summary: Retrieve "My EscrowPi" button metadata
+      description: Issues the MyEscrow dashboard button so users can review escrow history.
+      tags: [Buttons]
+      operationId: getMyEscrowButton
+      parameters:
+        - $ref: '#/components/parameters/InvocationHint'
+      responses:
+        '200':
+          description: Button asset and invocation token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ButtonResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /invocations/issue:
+    post:
+      summary: Issue a single-use invocation token without button asset
+      description: Creates an invocation token directly for custom UI flows that don’t need the hosted asset.
+      tags: [Invocations]
+      operationId: issueInvocation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvocationIssueRequest'
+      responses:
+        '201':
+          description: Invocation token created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvocationToken'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /invocations/{invocationId}/consume:
+    post:
+      summary: Mark invocation token as consumed
+      description: Marks a previously issued invocation as used or blocked for reconciliation.
+      tags: [Invocations]
+      operationId: consumeInvocation
+      parameters:
+        - name: invocationId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvocationConsumeRequest'
+      responses:
+        '200':
+          description: Invocation marked used
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InvocationConsumeResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '409':
+          description: Invocation already used or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /logic/pay:
+    post:
+      summary: Execute PayWithEscrowPi logic
+      description: Completes the payer flow by validating Pi users and creating an escrow order.
+      tags: [Logic]
+      operationId: payLogic
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayLogicRequest'
+      responses:
+        '200':
+          description: Pay logic completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogicResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Invocation blocked or stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Counterparty validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Pi Platform lookup failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /logic/receive:
+    post:
+      summary: Execute ReceiveWithEscrowPi logic
+      description: Lets a payee request funds and prepares an escrow order pending payer approval.
+      tags: [Logic]
+      operationId: receiveLogic
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiveLogicRequest'
+      responses:
+        '200':
+          description: Receive request created and pending payer acceptance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogicResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Invocation blocked or stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Counterparty validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Pi Platform lookup failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /logic/myescrow:
+    post:
+      summary: Execute MyEscrowPi logic
+      description: Returns the caller’s active orders, disputes, and permitted actions.
+      tags: [Logic]
+      operationId: myEscrowLogic
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyEscrowLogicRequest'
+      responses:
+        '200':
+          description: Returns user ledger, disputes, and permitted actions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyEscrowLogicResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Invocation blocked or stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    AppIdHeader:
+      type: apiKey
+      in: header
+      name: x-escrowpi-app-id
+      description: Issued per developer app, rotated quarterly
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: x-escrowpi-api-key
+      description: Secret API key scoped to the developer app
+    PiUserAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: PiAccessToken
+      description: Pi Browser access token proving end-user context
+  parameters:
+    InvocationHint:
+      name: x-escrowpi-invocation-hint
+      in: header
+      required: false
+      description: Optional hash for matching issued buttons to invocation tokens
+      schema:
+        type: string
+  responses:
+    Unauthorized:
+      description: Missing or invalid headers
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvalidPayload:
+      description: Payload missing required fields or failed validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: API key exceeded rate limit
+      headers:
+        Retry-After:
+          description: Seconds until next allowed call
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ButtonResponse:
+      type: object
+      properties:
+        assetUrl:
+          type: string
+          format: uri
+        invocation:
+          $ref: '#/components/schemas/InvocationToken'
+        ttlSeconds:
+          type: integer
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+    InvocationToken:
+      type: object
+      required: [id, status, issuedAt, expiresAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [issued, used, expired]
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        developerAppId:
+          type: string
+        signature:
+          type: string
+    InvocationIssueRequest:
+      type: object
+      required: [buttonType]
+      properties:
+        buttonType:
+          type: string
+          enum: [pay, receive, myescrow]
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    InvocationConsumeRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [used, blocked]
+        reason:
+          type: string
+    InvocationConsumeResponse:
+      type: object
+      properties:
+        invocation:
+          $ref: '#/components/schemas/InvocationToken'
+    DeveloperFeeConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        percent:
+          type: number
+          minimum: 0
+          maximum: 10
+        developerPiUid:
+          type: string
+    PiUserRef:
+      type: object
+      required: [piUid, piUsername]
+      properties:
+        piUid:
+          type: string
+        piUsername:
+          type: string
+    FeeBreakdown:
+      type: object
+      properties:
+        payerAmount:
+          type: number
+        payeeReceives:
+          type: number
+        escrowFee:
+          type: number
+        networkFee:
+          type: number
+        developerFee:
+          type: number
+    PayLogicRequest:
+      type: object
+      required:
+        - invocationId
+        - sender
+        - receiver
+        - amount
+        - piAccessToken
+      properties:
+        invocationId:
+          type: string
+        sender:
+          $ref: '#/components/schemas/PiUserRef'
+        receiver:
+          $ref: '#/components/schemas/PiUserRef'
+        amount:
+          type: number
+          minimum: 0.01
+        memo:
+          type: string
+          maxLength: 240
+        piAccessToken:
+          type: string
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+    ReceiveLogicRequest:
+      allOf:
+        - $ref: '#/components/schemas/PayLogicRequest'
+        - type: object
+          properties:
+            autoAccept:
+              type: boolean
+              default: false
+    MyEscrowLogicRequest:
+      type: object
+      required:
+        - invocationId
+        - piAccessToken
+      properties:
+        invocationId:
+          type: string
+        piAccessToken:
+          type: string
+        filters:
+          type: object
+          properties:
+            status:
+              type: string
+            role:
+              type: string
+              enum: [payer, payee]
+    LogicResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, unsuccessful, blocked]
+        order:
+          $ref: '#/components/schemas/EscrowOrderSummary'
+        fee:
+          $ref: '#/components/schemas/FeeBreakdown'
+        error:
+          $ref: '#/components/schemas/ErrorResponse'
+    EscrowOrderSummary:
+      type: object
+      properties:
+        orderNo:
+          type: string
+        payer:
+          $ref: '#/components/schemas/PiUserRef'
+        payee:
+          $ref: '#/components/schemas/PiUserRef'
+        status:
+          type: string
+        disputeState:
+          type: string
+        amount:
+          type: number
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+    MyEscrowLogicResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/EscrowOrderSummary'
+        disputes:
+          type: array
+          items:
+            $ref: '#/components/schemas/EscrowOrderSummary'
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [unsuccessful, blocked]
+        errorCode:
+          type: string
+          enum:
+            - pi_user_invalid
+            - pi_user_validation_failed
+            - pi_user_registration_failed
+            - invalid_payload
+            - invocation_blocked
+            - invocation_expired
+            - unauthorized
+            - rate_limited
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: string
