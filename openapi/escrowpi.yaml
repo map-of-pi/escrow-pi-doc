@@ -11,15 +11,13 @@ servers:
     description: Staging environment
   - url: https://api.escrowpi.com
     description: Production environment
-  - url: http://localhost:4000
-    description: Local developer proxy
   - url: http://localhost:8002
     description: Local developer backend (escrow-pi-backend)
 security:
   - AppIdHeader: []
     ApiKeyHeader: []
 paths:
-  /buttons/pay:
+  /api/v1/developer/buttons/pay:
     get:
       summary: Retrieve "Pay with EscrowPi" button metadata
       description: Issues the Pay button asset plus a single-use invocation token for payer flows.
@@ -40,7 +38,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/RateLimited'
-  /buttons/receive:
+  /api/v1/developer/buttons/receive:
     get:
       summary: Retrieve "Receive with EscrowPi" button metadata
       description: Issues the Receive button asset + invocation token for payee-initiated requests.
@@ -61,7 +59,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/RateLimited'
-  /buttons/myescrow:
+  /api/v1/developer/buttons/myescrow:
     get:
       summary: Retrieve "My EscrowPi" button metadata
       description: Issues the MyEscrow dashboard button so users can review escrow history.
@@ -82,63 +80,7 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/RateLimited'
-  /invocations/issue:
-    post:
-      summary: Issue a single-use invocation token without button asset
-      description: Creates an invocation token directly for custom UI flows that don’t need the hosted asset.
-      tags: [Invocations]
-      operationId: issueInvocation
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/InvocationIssueRequest'
-      responses:
-        '201':
-          description: Invocation token created
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvocationToken'
-        '400':
-          $ref: '#/components/responses/InvalidPayload'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
-  /invocations/{invocationId}/consume:
-    post:
-      summary: Mark invocation token as consumed
-      description: Marks a previously issued invocation as used or blocked for reconciliation.
-      tags: [Invocations]
-      operationId: consumeInvocation
-      parameters:
-        - name: invocationId
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/InvocationConsumeRequest'
-      responses:
-        '200':
-          description: Invocation marked used
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/InvocationConsumeResponse'
-        '400':
-          $ref: '#/components/responses/InvalidPayload'
-        '409':
-          description: Invocation already used or expired
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ErrorResponse'
-  /logic/pay:
+  /api/v1/developer/logic/pay:
     post:
       summary: Execute PayWithEscrowPi logic
       description: Completes the payer flow by validating Pi users and creating an escrow order.
@@ -171,7 +113,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /admin/developer-apps:
+  /api/v1/admin/developer-apps:
     get:
       summary: List developer apps
       description: Retrieves all registered developer apps for auditing and lifecycle management.
@@ -228,7 +170,7 @@ paths:
                     $ref: '#/components/schemas/DeveloperAppCredentials'
         '400':
           $ref: '#/components/responses/InvalidPayload'
-  /admin/developer-apps/{appId}/rotate-key:
+  /api/v1/admin/developer-apps/{appId}/rotate-key:
     post:
       summary: Rotate developer API key
       description: Generates a new API key for the specified developer app and returns the plaintext key once.
@@ -255,7 +197,7 @@ paths:
                     $ref: '#/components/schemas/DeveloperAppCredentials'
         '404':
           description: Developer app not found
-  /admin/developer-apps/{appId}/suspend:
+  /api/v1/admin/developer-apps/{appId}/suspend:
     post:
       summary: Suspend developer app
       description: Sets developer app status to suspended, blocking API usage.
@@ -280,7 +222,7 @@ paths:
                     $ref: '#/components/schemas/DeveloperAppAdminView'
         '404':
           description: Developer app not found
-  /admin/developer-apps/{appId}/reactivate:
+  /api/v1/admin/developer-apps/{appId}/reactivate:
     post:
       summary: Reactivate developer app
       description: Sets developer app status back to active.
@@ -317,7 +259,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /logic/receive:
+  /api/v1/developer/logic/receive:
     post:
       summary: Execute ReceiveWithEscrowPi logic
       description: Lets a payee request funds and prepares an escrow order pending payer approval.
@@ -362,7 +304,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /logic/myescrow:
+  /api/v1/developer/logic/myescrow:
     post:
       summary: Execute MyEscrowPi logic
       description: Returns the caller’s active orders, disputes, and permitted actions.
@@ -435,7 +377,7 @@ components:
         maximum: 100
       description: >-
         Optional surcharge percent (0-Max) to apply for this invocation. Values above the platform
-        max (configured by EscrowPi) are automatically clamped.
+        max (configured by EscrowPi) are automatically clamped. Must be accompanied by developerPiUid.
     DeveloperFeePiUid:
       name: developerPiUid
       in: query
