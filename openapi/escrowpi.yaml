@@ -27,6 +27,8 @@ paths:
       operationId: getPayButton
       parameters:
         - $ref: '#/components/parameters/InvocationHint'
+        - $ref: '#/components/parameters/DeveloperFeePercent'
+        - $ref: '#/components/parameters/DeveloperFeePiUid'
       responses:
         '200':
           description: Button asset and invocation token issued
@@ -46,6 +48,8 @@ paths:
       operationId: getReceiveButton
       parameters:
         - $ref: '#/components/parameters/InvocationHint'
+        - $ref: '#/components/parameters/DeveloperFeePercent'
+        - $ref: '#/components/parameters/DeveloperFeePiUid'
       responses:
         '200':
           description: Button asset and invocation token issued
@@ -65,6 +69,8 @@ paths:
       operationId: getMyEscrowButton
       parameters:
         - $ref: '#/components/parameters/InvocationHint'
+        - $ref: '#/components/parameters/DeveloperFeePercent'
+        - $ref: '#/components/parameters/DeveloperFeePiUid'
       responses:
         '200':
           description: Button asset and invocation token issued
@@ -165,6 +171,140 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /admin/developer-apps:
+    get:
+      summary: List developer apps
+      description: Retrieves all registered developer apps for auditing and lifecycle management.
+      tags: [Admin]
+      security:
+        - AdminPasswordAuth: []
+      responses:
+        '200':
+          description: Array of developer apps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeveloperAppAdminView'
+        '401':
+          description: Invalid admin credentials
+    post:
+      summary: Create developer app and issue credentials
+      description: Creates a developer app, hashes the API key, and returns the plaintext key once.
+      tags: [Admin]
+      security:
+        - AdminPasswordAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                contactEmail:
+                  type: string
+                allowedOrigins:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Developer app created and credentials returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+                  credentials:
+                    $ref: '#/components/schemas/DeveloperAppCredentials'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+  /admin/developer-apps/{appId}/rotate-key:
+    post:
+      summary: Rotate developer API key
+      description: Generates a new API key for the specified developer app and returns the plaintext key once.
+      tags: [Admin]
+      security:
+        - AdminPasswordAuth: []
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: New credentials issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+                  credentials:
+                    $ref: '#/components/schemas/DeveloperAppCredentials'
+        '404':
+          description: Developer app not found
+  /admin/developer-apps/{appId}/suspend:
+    post:
+      summary: Suspend developer app
+      description: Sets developer app status to suspended, blocking API usage.
+      tags: [Admin]
+      security:
+        - AdminPasswordAuth: []
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: App suspended
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+        '404':
+          description: Developer app not found
+  /admin/developer-apps/{appId}/reactivate:
+    post:
+      summary: Reactivate developer app
+      description: Sets developer app status back to active.
+      tags: [Admin]
+      security:
+        - AdminPasswordAuth: []
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: App reactivated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+        '404':
+          description: Developer app not found
         '422':
           description: Counterparty validation failure
           content:
@@ -272,14 +412,37 @@ components:
       scheme: bearer
       bearerFormat: PiAccessToken
       description: Pi Browser access token proving end-user context
+    AdminPasswordAuth:
+      type: http
+      scheme: basic
+      description: Basic auth protecting admin APIs (uses ADMIN_API_USERNAME/PASSWORD)
   parameters:
     InvocationHint:
       name: x-escrowpi-invocation-hint
       in: header
       required: false
-      description: Optional hash for matching issued buttons to invocation tokens
       schema:
         type: string
+      description: Optional developer-provided reconciliation hint stored alongside the invocation.
+    DeveloperFeePercent:
+      name: developerFeePercent
+      in: query
+      required: false
+      schema:
+        type: number
+        format: float
+        minimum: 0
+        maximum: 100
+      description: >-
+        Optional surcharge percent (0-Max) to apply for this invocation. Values above the platform
+        max (configured by EscrowPi) are automatically clamped.
+    DeveloperFeePiUid:
+      name: developerPiUid
+      in: query
+      required: false
+      schema:
+        type: string
+      description: Optional Pi UID that should receive the developer surcharge share once escrow funds are released.
   responses:
     Unauthorized:
       description: Missing or invalid headers
@@ -512,3 +675,37 @@ components:
           type: object
           additionalProperties:
             type: string
+    DeveloperAppAdminView:
+      type: object
+      properties:
+        appId:
+          type: string
+        name:
+          type: string
+        contactEmail:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, suspended]
+        allowedOrigins:
+          type: array
+          items:
+            type: string
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DeveloperAppCredentials:
+      type: object
+      properties:
+        appId:
+          type: string
+        apiKey:
+          type: string
