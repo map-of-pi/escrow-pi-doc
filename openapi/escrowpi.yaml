@@ -7,12 +7,12 @@ info:
     and Pi user validation requirements. All logic endpoints enforce Pi Browser
     authentication parity and single-use invocation tokens.
 servers:
+  - url: http://localhost:8002
+    description: Local developer backend (escrow-pi-backend)
   - url: https://staging.api.escrowpi.com
     description: Staging environment
   - url: https://api.escrowpi.com
     description: Production environment
-  - url: http://localhost:8002
-    description: Local developer backend (escrow-pi-backend)
 security:
   - AppIdHeader: []
     ApiKeyHeader: []
@@ -134,6 +134,52 @@ paths:
                       $ref: '#/components/schemas/DeveloperAppAdminView'
         '401':
           description: Invalid admin credentials
+  /api/v1/admin/developer-apps/{appId}:
+    patch:
+      summary: Update developer app metadata
+      description: Update mutable developer app fields such as contactEmail, allowedOrigins, metadata, or display name.
+      tags: [Admin]
+      security:
+        - AdminPasswordAuth: []
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                contactEmail:
+                  type: string
+                allowedOrigins:
+                  type: array
+                  items:
+                    type: string
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Updated developer app
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+        '400':
+          description: Invalid input
+        '401':
+          description: Invalid admin credentials
+        '404':
+          description: Developer app not found
     post:
       summary: Create developer app and issue credentials
       description: Creates a developer app, hashes the API key, and returns the plaintext key once.
