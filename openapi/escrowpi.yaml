@@ -113,6 +113,35 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/developer/fees:
+    post:
+      summary: Retrieve fee policy and optional calculation for an amount
+      description: Returns the current EscrowPi fee policy, developer fee configuration, and an optional fee breakdown when an amount is supplied.
+      tags: [Fees]
+      operationId: getDeveloperFees
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeveloperFeesRequest'
+      responses:
+        '200':
+          description: Fee policy (and optional breakdown) returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperFeesResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /api/v1/admin/developer-apps:
     get:
       summary: List developer apps
@@ -547,6 +576,74 @@ components:
           type: number
         developerFee:
           type: number
+    DeveloperFeeBreakdown:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        amount:
+          type: number
+        percent:
+          type: number
+        developerPiUid:
+          type: string
+        developerAppId:
+          type: string
+    DeveloperFeePolicy:
+      type: object
+      properties:
+        completionStakePercent:
+          type: number
+        completionStakeMin:
+          type: number
+        escrowFeePercent:
+          type: number
+        escrowFeeMin:
+          type: number
+        networkFee:
+          type: number
+        developerFeeMaxPercent:
+          type: number
+    DeveloperFeesRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          minimum: 0.01
+        developerFeePercent:
+          type: number
+          minimum: 0
+        currency:
+          type: string
+          default: pi
+    DeveloperFeesResponse:
+      type: object
+      properties:
+        currency:
+          type: string
+        policy:
+          $ref: '#/components/schemas/DeveloperFeePolicy'
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+        amount:
+          type: number
+        fees:
+          type: object
+          properties:
+            baseAmount:
+              type: number
+            completionStake:
+              type: number
+            escrowFee:
+              type: number
+            networkFee:
+              type: number
+            totalAmount:
+              type: number
+            payeeAmount:
+              type: number
+            developerFee:
+              $ref: '#/components/schemas/DeveloperFeeBreakdown'
     PayLogicRequest:
       type: object
       required:
