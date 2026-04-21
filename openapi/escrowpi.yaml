@@ -41,6 +41,73 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/buttons/{buttonType}/redirect:
+    get:
+      summary: Build signed provider redirect URL
+      description: Validates the invocation token and constructs the signed redirect payload/URL that the hosted provider UI will consume.
+      tags: [Buttons]
+      operationId: getProviderRedirect
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      parameters:
+        - name: buttonType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [pay]
+        - name: invocationId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: returnUrl
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: amount
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: receiverPiUsername
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: memo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Signed provider redirect created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderRedirectResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Invocation blocked or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /api/v1/developer/provider/pay/context:
     get:
       summary: Load provider redirect context
@@ -183,6 +250,65 @@ paths:
           $ref: '#/components/responses/InvalidPayload'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/developer/provider/pay/error:
+    post:
+      summary: Record provider redirect failure
+      description: Called when provider checkout encounters an unrecoverable error. Returns the signed callback payload so the merchant can surface the failure.
+      tags: [Provider Redirect]
+      operationId: providerPayError
+      security:
+        - PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderPayErrorRequest'
+      responses:
+        '200':
+          description: Error recorded and callback payload returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPayErrorResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Invocation blocked or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/developer/provider/return/verify:
+    post:
+      summary: Verify provider return payload
+      description: Merchants call this endpoint server-side to confirm the signed redirect payload before trusting EscrowPi’s callback parameters.
+      tags: [Provider Redirect]
+      operationId: providerReturnVerify
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderReturnVerifyRequest'
+      responses:
+        '200':
+          description: Payload verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderReturnVerifyResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /api/v1/developer/buttons/receive:
     get:
       summary: Retrieve "Receive with EscrowPi" button metadata
@@ -899,23 +1025,80 @@ components:
           enum: [success, unsuccessful, blocked]
         orderNo:
           type: string
-        fees:
+    ProviderRedirectResponse:
+      type: object
+      properties:
+        providerRedirect:
           type: object
           properties:
-            baseAmount:
-              type: number
-            completionStake:
-              type: number
-            escrowFee:
-              type: number
-            networkFee:
-              type: number
-            totalAmount:
-              type: number
-            developerFee:
-              $ref: '#/components/schemas/DeveloperFeeBreakdown'
-        developerFee:
-          $ref: '#/components/schemas/DeveloperFeeBreakdown'
+            url:
+              type: string
+              format: uri
+            payload:
+              $ref: '#/components/schemas/ProviderRedirectPayload'
+        invocationId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        issuedFor:
+          type: object
+          additionalProperties: true
+          nullable: true
+        developerApp:
+          $ref: '#/components/schemas/DeveloperAppRef'
+    ProviderPayErrorRequest:
+      allOf:
+        - $ref: '#/components/schemas/ProviderRedirectPayload'
+        - type: object
+          properties:
+            message:
+              type: string
+            errorCode:
+              type: string
+    ProviderPayErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        redirectUrl:
+          type: string
+          format: uri
+        returnPayload:
+          $ref: '#/components/schemas/ProviderRedirectPayload'
+    ProviderReturnVerifyRequest:
+      type: object
+      required:
+        - developerAppId
+        - invocationId
+        - status
+        - signature
+      properties:
+        developerAppId:
+          type: string
+        invocationId:
+          type: string
+        status:
+          type: string
+          enum: [success, cancelled, error]
+        orderNo:
+          type: string
+        state:
+          type: string
+        errorCode:
+          type: string
+        message:
+          type: string
+        signature:
+          type: string
+    ProviderReturnVerifyResponse:
+      type: object
+      properties:
+        payload:
+          type: object
+          additionalProperties: true
+        signature:
+          type: string
     PayLogicRequest:
       type: object
       required:
