@@ -309,6 +309,39 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '429':
           $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/orders/{orderNo}:
+    get:
+      summary: Retrieve a developer order snapshot
+      description: Returns the EscrowPi order tied to the authenticated developer app, including payment IDs and dispute status, so merchants can audit outcomes after callbacks.
+      tags: [Orders]
+      operationId: getDeveloperOrder
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          description: Public order number returned in the callback payload
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order snapshot located for this developer app
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperOrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Order not found for this developer app
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /api/v1/developer/buttons/receive:
     get:
       summary: Retrieve "Receive with EscrowPi" button metadata
@@ -1099,6 +1132,104 @@ components:
           additionalProperties: true
         signature:
           type: string
+    DeveloperAppRef:
+      type: object
+      properties:
+        appId:
+          type: string
+        name:
+          type: string
+        contactEmail:
+          type: string
+          format: email
+        status:
+          type: string
+    DeveloperOrderResponse:
+      type: object
+      properties:
+        order:
+          $ref: '#/components/schemas/DeveloperOrderSnapshot'
+    DeveloperOrderSnapshot:
+      type: object
+      required:
+        - orderNo
+        - status
+        - amount
+        - payer
+        - payee
+        - developerApp
+        - payments
+        - timestamps
+      properties:
+        orderNo:
+          type: string
+        status:
+          type: string
+        amount:
+          type: number
+        baseAmount:
+          type: number
+          nullable: true
+        payer:
+          type: object
+          properties:
+            username:
+              type: string
+            piUid:
+              type: string
+        payee:
+          type: object
+          properties:
+            username:
+              type: string
+            piUid:
+              type: string
+        developerApp:
+          type: object
+          properties:
+            appId:
+              type: string
+              nullable: true
+            name:
+              type: string
+              nullable: true
+            feePercent:
+              type: number
+              nullable: true
+        payments:
+          type: object
+          properties:
+            payerToEscrow:
+              $ref: '#/components/schemas/DeveloperPaymentEdge'
+            escrowToMerchant:
+              $ref: '#/components/schemas/DeveloperPaymentEdge'
+            payerRefund:
+              $ref: '#/components/schemas/DeveloperPaymentEdge'
+        dispute:
+          type: object
+          nullable: true
+          additionalProperties: true
+        timestamps:
+          type: object
+          properties:
+            createdAt:
+              type: string
+              format: date-time
+              nullable: true
+            updatedAt:
+              type: string
+              format: date-time
+              nullable: true
+    DeveloperPaymentEdge:
+      type: object
+      nullable: true
+      properties:
+        paymentId:
+          type: string
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
     PayLogicRequest:
       type: object
       required:
