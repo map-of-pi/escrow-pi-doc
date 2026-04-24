@@ -424,8 +424,28 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
   /api/v1/developer/fees:
+    get:
+      summary: Retrieve fee policy
+      description: Returns the current EscrowPi fee policy and developer fee configuration for Pi-authenticated pioneers who have not yet registered with EscrowPi. Use POST to request an amount-based breakdown.
+      tags: [Fees]
+      operationId: previewDeveloperFees
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      responses:
+        '200':
+          description: Fee policy returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperFeesResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
     post:
-      summary: Retrieve fee policy and optional calculation for an amount
+      summary: Retrieve fee policy and fee calculation for an amount
       description: Returns the current EscrowPi fee policy, developer fee configuration, and an optional fee breakdown when an amount is supplied.
       tags: [Fees]
       operationId: getDeveloperFees
