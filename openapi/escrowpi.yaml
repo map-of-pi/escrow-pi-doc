@@ -355,7 +355,7 @@ paths:
           required: false
           schema:
             type: string
-            enum: [requested, in_progress, closed]
+            enum: [requested, in_progress, approved, rejected]
           description: Optional status filter.
         - name: requestType
           in: query
@@ -1555,7 +1555,7 @@ components:
           nullable: true
         status:
           type: string
-          enum: [requested, in_progress, closed]
+          enum: [requested, in_progress, approved, rejected]
         formData:
           type: object
           description: Type-specific payload supplied by the pioneer (app metadata, rotation reason, etc).
@@ -1602,7 +1602,8 @@ components:
           type: object
           description: |
             Type-specific structured payload. Create/update requests accept fields like appName, description,
-            contactEmail, allowedOrigins, callbackUrls, and notes. Rotation requests accept reason/urgency strings.
+            contactEmail, allowedOrigins, and notes. App name and contactEmail are required when requestType is create_app.
+            Rotation requests accept reason/urgency strings.
           properties:
             appName:
               type: string
@@ -1611,15 +1612,11 @@ components:
             contactEmail:
               type: string
               format: email
+              description: Required when requestType is create_app.
             allowedOrigins:
               type: array
               items:
                 type: string
-            callbackUrls:
-              type: array
-              items:
-                type: string
-                format: uri
             notes:
               type: string
             reason:
