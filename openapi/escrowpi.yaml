@@ -38,6 +38,70 @@ paths:
                 $ref: '#/components/schemas/ButtonResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/DeveloperUserInactive'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/validation/caller:
+    post:
+      summary: Validate authenticated caller Pi user
+      description: Ensures the currently authenticated Pi user has completed EscrowPi onboarding and activation before issuing developer buttons or logic calls.
+      tags: [Validation]
+      operationId: validateDeveloperCaller
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      responses:
+        '200':
+          description: Caller is authenticated and active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperValidationCallerResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Caller missing activation or onboarding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/validation/receiver:
+    post:
+      summary: Validate receiver Pi username
+      description: Validates the provided receiver Pi username against EscrowPi records and enforces activation before checkout.
+      tags: [Validation]
+      operationId: validateDeveloperReceiver
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeveloperReceiverValidationRequest'
+      responses:
+        '200':
+          description: Receiver located and active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperValidationReceiverResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Receiver inactive or mismatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
         '429':
           $ref: '#/components/responses/RateLimited'
   /api/v1/developer/buttons/{buttonType}/redirect:
@@ -100,7 +164,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          description: Invocation blocked or expired
+          description: Invocation blocked, expired, or Pi user inactive
           content:
             application/json:
               schema:
@@ -177,7 +241,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          description: Invocation blocked or expired
+          description: Invocation blocked, expired, or Pi user inactive
           content:
             application/json:
               schema:
@@ -211,7 +275,7 @@ paths:
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
-          description: Invocation blocked or expired
+          description: Invocation blocked, expired, or Pi user inactive
           content:
             application/json:
               schema:
@@ -949,6 +1013,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    DeveloperUserInactive:
+      description: Caller or receiver Pi user has not activated EscrowPi
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
   schemas:
     ButtonResponse:
       type: object
@@ -1028,6 +1098,36 @@ components:
           type: string
         piUsername:
           type: string
+    ValidatedPiUser:
+      allOf:
+        - $ref: '#/components/schemas/PiUserRef'
+        - type: object
+          properties:
+            isActive:
+              type: boolean
+    DeveloperReceiverValidationRequest:
+      type: object
+      required: [receiverPiUsername]
+      properties:
+        receiverPiUsername:
+          type: string
+          description: Pi username to validate (without leading "@")
+    DeveloperValidationCallerResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        caller:
+          $ref: '#/components/schemas/ValidatedPiUser'
+    DeveloperValidationReceiverResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        receiver:
+          $ref: '#/components/schemas/ValidatedPiUser'
     FeeBreakdown:
       type: object
       properties:
