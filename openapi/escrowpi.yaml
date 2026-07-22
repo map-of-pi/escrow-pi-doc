@@ -1,0 +1,1795 @@
+openapi: 3.1.0
+info:
+  title: EscrowPi Developer APIs
+  version: 0.2.0
+  description: |
+    Phase 2 specification covering developer button retrieval, invocation lifecycle,
+    and Pi user validation requirements. All logic endpoints enforce Pi Browser
+    authentication parity and single-use invocation tokens.
+servers:
+  - url: http://localhost:8002
+    description: Local developer backend (escrow-pi-backend)
+  - url: https://staging.api.escrowpi.com
+    description: Staging environment
+  - url: https://api.escrowpi.com
+    description: Production environment
+security:
+  - AppIdHeader: []
+    ApiKeyHeader: []
+paths:
+  /api/v1/developer/buttons/pay:
+    get:
+      summary: Retrieve "Pay with EscrowPi" button metadata
+      description: Issues the Pay button asset plus a single-use invocation token for payer flows.
+      tags: [Buttons]
+      operationId: getPayButton
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeveloperFeePercent'
+      responses:
+        '200':
+          description: Button asset and invocation token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ButtonResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/DeveloperUserInactive'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/validation/caller:
+    post:
+      summary: Validate authenticated caller Pi user
+      description: Ensures the currently authenticated Pi user has completed EscrowPi onboarding and activation before issuing developer buttons or logic calls.
+      tags: [Validation]
+      operationId: validateDeveloperCaller
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      responses:
+        '200':
+          description: Caller is authenticated and active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperValidationCallerResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Caller missing activation or onboarding
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/validation/receiver:
+    post:
+      summary: Validate receiver Pi username
+      description: Validates the provided receiver Pi username against EscrowPi records and enforces activation before checkout.
+      tags: [Validation]
+      operationId: validateDeveloperReceiver
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeveloperReceiverValidationRequest'
+      responses:
+        '200':
+          description: Receiver located and active
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperValidationReceiverResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Receiver inactive or mismatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/buttons/{buttonType}/redirect:
+    get:
+      summary: Build signed provider redirect URL
+      description: Validates the invocation token and constructs the signed redirect payload/URL that the hosted provider UI will consume.
+      tags: [Buttons]
+      operationId: getProviderRedirect
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      parameters:
+        - name: buttonType
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [pay]
+        - name: invocationId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: returnUrl
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: amount
+          in: query
+          required: false
+          schema:
+            type: number
+        - name: receiverPiUsername
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: memo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Signed provider redirect created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderRedirectResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Invocation blocked, expired, or Pi user inactive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/provider/pay/context:
+    get:
+      summary: Load provider redirect context
+      description: |
+        The EscrowPi provider UI (escrow-pi-frontend) calls this endpoint after forcing Pi auth inside Pi Browser.
+        It verifies the signed redirect payload, hydrates invocation details, and returns fee policy + payer metadata
+        so the hosted UI can render a confirmation screen.
+      tags: [Provider Redirect]
+      operationId: providerPayContext
+      security:
+        - PiUserAuth: []
+      parameters:
+        - name: invocationId
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Invocation token embedded in the redirect payload
+        - name: developerAppId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: returnUrl
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uri
+        - name: signature
+          in: query
+          required: true
+          schema:
+            type: string
+          description: HMAC signature generated by `developer/buttons/pay`
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Merchant-provided state that is echoed back on success/cancel
+        - name: amount
+          in: query
+          required: false
+          schema:
+            type: number
+          description: Optional payer override for amount before confirmation
+        - name: receiverPiUsername
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Optional payer override for the receiver handle
+        - name: memo
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Provider context returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPayContextResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Invocation blocked, expired, or Pi user inactive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/developer/provider/pay/submit:
+    post:
+      summary: Confirm provider redirect checkout
+      description: |
+        Called by escrow-pi-frontend after the payer approves the redirect flow. Validates the signed payload,
+        enforces Pi user identity, executes `developer/logic/pay`, and returns the signed callback payload so the frontend
+        can redirect the browser back to the merchant app.
+      tags: [Provider Redirect]
+      operationId: providerPaySubmit
+      security:
+        - PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderPaySubmitRequest'
+      responses:
+        '200':
+          description: Order created and callback payload returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPaySubmitResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Invocation blocked, expired, or Pi user inactive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Counterparty validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/developer/provider/pay/cancel:
+    post:
+      summary: Record provider redirect cancellation
+      description: |
+        Called when the payer cancels inside escrow-pi-frontend. Verifies the signed payload and returns the
+        signed callback payload so the merchant can show a cancelled status.
+      tags: [Provider Redirect]
+      operationId: providerPayCancel
+      security:
+        - PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderPayCancelRequest'
+      responses:
+        '200':
+          description: Cancellation acknowledged
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPayCancelResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/developer/provider/pay/error:
+    post:
+      summary: Record provider redirect failure
+      description: Called when provider checkout encounters an unrecoverable error. Returns the signed callback payload so the merchant can surface the failure.
+      tags: [Provider Redirect]
+      operationId: providerPayError
+      security:
+        - PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderPayErrorRequest'
+      responses:
+        '200':
+          description: Error recorded and callback payload returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderPayErrorResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          description: Invocation blocked or expired
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/developer/provider/return/verify:
+    post:
+      summary: Verify provider return payload
+      description: Merchants call this endpoint server-side to confirm the signed redirect payload before trusting EscrowPi’s callback parameters.
+      tags: [Provider Redirect]
+      operationId: providerReturnVerify
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProviderReturnVerifyRequest'
+      responses:
+        '200':
+          description: Payload verified
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProviderReturnVerifyResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/orders/{orderNo}:
+    get:
+      summary: Retrieve a developer order snapshot
+      description: Returns the EscrowPi order tied to the authenticated developer app, including payment IDs and dispute status, so merchants can audit outcomes after callbacks.
+      tags: [Orders]
+      operationId: getDeveloperOrder
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          description: Public order number returned in the callback payload
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Order snapshot located for this developer app
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperOrderResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Order not found for this developer app
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/orders/{orderNo}/status:
+    post:
+      summary: Update developer order status
+      description: Allows a developer app to transition its order to supported statuses such as `released` or `disputed`.
+      tags: [Orders]
+      operationId: updateDeveloperOrderStatus
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Public EscrowPi order number.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeveloperOrderActionRequest'
+      responses:
+        '200':
+          description: Order status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperOrderResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Order not found for this developer app
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/requests:
+    get:
+      summary: List developer requests
+      description: Returns the authenticated pioneer's developer workflow requests, ordered by most recent first.
+      tags: [DeveloperRequests]
+      operationId: listDeveloperRequests
+      security:
+        - PiUserAuth: []
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [requested, in_progress, approved, rejected]
+          description: Optional status filter.
+        - name: requestType
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [create_app, update_app, rotate_api_key]
+          description: Optional request type filter.
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+          description: Maximum number of requests to return (default 20).
+      responses:
+        '200':
+          description: Requests returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperRequestListResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      summary: Submit a developer workflow request
+      description: Creates a request for onboarding, app metadata changes, or credential rotation.
+      tags: [DeveloperRequests]
+      operationId: createDeveloperRequest
+      security:
+        - PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeveloperRequestCreateRequest'
+      responses:
+        '201':
+          description: Request created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperRequestResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/developer/buttons/receive:
+    get:
+      summary: Retrieve "Receive with EscrowPi" button metadata
+      description: Issues the Receive button asset + invocation token for payee-initiated requests.
+      tags: [Buttons]
+      operationId: getReceiveButton
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      parameters:
+        - $ref: '#/components/parameters/DeveloperFeePercent'
+      responses:
+        '200':
+          description: Button asset and invocation token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ButtonResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/buttons/myescrow:
+    get:
+      summary: Retrieve "My EscrowPi" button metadata
+      description: Issues the MyEscrow dashboard button so users can review escrow history.
+      tags: [Buttons]
+      operationId: getMyEscrowButton
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      responses:
+        '200':
+          description: Button asset and invocation token issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ButtonResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/logic/pay:
+    post:
+      summary: Execute PayWithEscrowPi logic
+      description: Completes the payer flow by validating Pi users and creating an escrow order.
+      tags: [Logic]
+      operationId: payLogic
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PayLogicRequest'
+      responses:
+        '200':
+          description: Pay logic completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogicResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Invocation blocked or stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/developer/fees:
+    get:
+      summary: Retrieve fee policy
+      description: Returns the current EscrowPi fee policy and developer fee configuration for Pi-authenticated pioneers who have not yet registered with EscrowPi. Use POST to request an amount-based breakdown.
+      tags: [Fees]
+      operationId: previewDeveloperFees
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      responses:
+        '200':
+          description: Fee policy returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperFeesResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    post:
+      summary: Retrieve fee policy and fee calculation for an amount
+      description: Returns the current EscrowPi fee policy, developer fee configuration, and an optional fee breakdown when an amount is supplied.
+      tags: [Fees]
+      operationId: getDeveloperFees
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeveloperFeesRequest'
+      responses:
+        '200':
+          description: Fee policy (and optional breakdown) returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperFeesResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /api/v1/admin/admins:
+    get:
+      summary: List admin users
+      description: Returns all EscrowPi users who currently have admin privileges.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      responses:
+        '200':
+          description: Array of admin users
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  admins:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AdminUser'
+        '401':
+          description: Invalid admin credentials
+    post:
+      summary: Promote a user to admin
+      description: Sets the user's isAdmin flag to true.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                piUid:
+                  type: string
+                  description: Promote user identified by Pi UID.
+                piUsername:
+                  type: string
+                  description: Alternative identifier when Pi UID is not supplied.
+              oneOf:
+                - required: [piUid]
+                - required: [piUsername]
+      responses:
+        '200':
+          description: Admin record returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  admin:
+                    $ref: '#/components/schemas/AdminUser'
+        '400':
+          description: Missing identifiers
+        '404':
+          description: User not found
+  /api/v1/admin/admins/{piUid}:
+    delete:
+      summary: Remove admin privileges from a user
+      description: Clears the user's isAdmin flag.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      parameters:
+        - name: piUid
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Updated user returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  admin:
+                    $ref: '#/components/schemas/AdminUser'
+        '400':
+          description: Attempted to remove self or missing piUid
+        '404':
+          description: User not found
+        '401':
+          description: Invalid admin credentials
+  /api/v1/admin/developer-apps:
+    get:
+      summary: List developer apps
+      description: Retrieves all registered developer apps for auditing and lifecycle management.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      responses:
+        '200':
+          description: Array of developer apps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/DeveloperAppAdminView'
+        '401':
+          description: Invalid admin credentials
+    post:
+      summary: Create developer app and issue credentials
+      description: Creates a developer app, hashes the API key, and returns the plaintext key once.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                contactEmail:
+                  type: string
+                allowedOrigins:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        '201':
+          description: Developer app created and credentials returned
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+                  credentials:
+                    $ref: '#/components/schemas/DeveloperAppCredentials'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+  /api/v1/admin/developer-apps/{appId}:
+    patch:
+      summary: Update developer app metadata
+      description: Update mutable developer app fields such as contactEmail, allowedOrigins, metadata, or display name.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                contactEmail:
+                  type: string
+                allowedOrigins:
+                  type: array
+                  items:
+                    type: string
+                metadata:
+                  type: object
+      responses:
+        '200':
+          description: Updated developer app
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+        '400':
+          description: Invalid input
+        '401':
+          description: Invalid admin credentials
+        '404':
+          description: Developer app not found
+  /api/v1/admin/developer-apps/{appId}/rotate-key:
+    post:
+      summary: Rotate developer API key
+      description: Generates a new API key for the specified developer app and returns the plaintext key once.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: New credentials issued
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+                  credentials:
+                    $ref: '#/components/schemas/DeveloperAppCredentials'
+        '404':
+          description: Developer app not found
+  /api/v1/admin/developer-apps/{appId}/suspend:
+    post:
+      summary: Suspend developer app
+      description: Sets developer app status to suspended, blocking API usage.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: App suspended
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+        '404':
+          description: Developer app not found
+  /api/v1/admin/developer-apps/{appId}/reactivate:
+    post:
+      summary: Reactivate developer app
+      description: Sets developer app status back to active.
+      tags: [Admin]
+      security:
+        - PiAdminAuth: []
+      parameters:
+        - name: appId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: App reactivated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  app:
+                    $ref: '#/components/schemas/DeveloperAppAdminView'
+        '404':
+          description: Developer app not found
+        '422':
+          description: Counterparty validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Pi Platform lookup failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/developer/logic/receive:
+    post:
+      summary: Execute ReceiveWithEscrowPi logic
+      description: Lets a payee request funds and prepares an escrow order pending payer approval.
+      tags: [Logic]
+      operationId: receiveLogic
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReceiveLogicRequest'
+      responses:
+        '200':
+          description: Receive request created and pending payer acceptance
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LogicResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Invocation blocked or stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Counterparty validation failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Pi Platform lookup failure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /api/v1/developer/logic/myescrow:
+    post:
+      summary: Execute MyEscrowPi logic
+      description: Returns the caller’s active orders, disputes, and permitted actions.
+      tags: [Logic]
+      operationId: myEscrowLogic
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+          PiUserAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MyEscrowLogicRequest'
+      responses:
+        '200':
+          description: Returns user ledger, disputes, and permitted actions
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyEscrowLogicResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Invocation blocked or stale
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  securitySchemes:
+    AppIdHeader:
+      type: apiKey
+      in: header
+      name: x-escrowpi-app-id
+      description: Issued per developer app, rotated quarterly
+    ApiKeyHeader:
+      type: apiKey
+      in: header
+      name: x-escrowpi-api-key
+      description: Secret API key scoped to the developer app
+    PiUserAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: PiAccessToken
+      description: Pi Browser access token proving end-user context
+    PiAdminAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: PiAccessToken
+      description: Pi Browser access token scoped to EscrowPi users with the isAdmin flag
+  parameters:
+    DeveloperFeePercent:
+      name: developerFeePercent
+      in: query
+      required: false
+      schema:
+        type: number
+        format: float
+        minimum: 0
+        maximum: 100
+      description: >-
+        Optional surcharge percent (0-Max) to apply for this invocation. Values above the platform
+        max (configured by EscrowPi) are automatically clamped. When present, EscrowPi routes the
+        surcharge to the Pi UID stored on the developer app profile.
+  responses:
+    Unauthorized:
+      description: Missing or invalid headers
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InvalidPayload:
+      description: Payload missing required fields or failed validation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: API key exceeded rate limit
+      headers:
+        Retry-After:
+          description: Seconds until next allowed call
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    DeveloperUserInactive:
+      description: Caller or receiver Pi user has not activated EscrowPi
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+  schemas:
+    ButtonResponse:
+      type: object
+      properties:
+        assetUrl:
+          type: string
+          format: uri
+        invocation:
+          $ref: '#/components/schemas/InvocationToken'
+        ttlSeconds:
+          type: integer
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+    InvocationToken:
+      type: object
+      required: [id, status, issuedAt, expiresAt]
+      properties:
+        id:
+          type: string
+        status:
+          type: string
+          enum: [issued, used, expired]
+        issuedAt:
+          type: string
+          format: date-time
+        expiresAt:
+          type: string
+          format: date-time
+        developerAppId:
+          type: string
+        signature:
+          type: string
+    InvocationIssueRequest:
+      type: object
+      required: [buttonType]
+      properties:
+        buttonType:
+          type: string
+          enum: [pay, receive, myescrow]
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+    InvocationConsumeRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [used, blocked]
+        reason:
+          type: string
+    InvocationConsumeResponse:
+      type: object
+      properties:
+        invocation:
+          $ref: '#/components/schemas/InvocationToken'
+    DeveloperFeeConfig:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          default: false
+        percent:
+          type: number
+          minimum: 0
+          maximum: 10
+        developerPiUid:
+          type: string
+    PiUserRef:
+      type: object
+      required: [piUid, piUsername]
+      properties:
+        piUid:
+          type: string
+        piUsername:
+          type: string
+    ValidatedPiUser:
+      allOf:
+        - $ref: '#/components/schemas/PiUserRef'
+        - type: object
+          properties:
+            isActive:
+              type: boolean
+    DeveloperReceiverValidationRequest:
+      type: object
+      required: [receiverPiUsername]
+      properties:
+        receiverPiUsername:
+          type: string
+          description: Pi username to validate (without leading "@")
+    DeveloperValidationCallerResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        caller:
+          $ref: '#/components/schemas/ValidatedPiUser'
+    DeveloperValidationReceiverResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          example: success
+        receiver:
+          $ref: '#/components/schemas/ValidatedPiUser'
+    FeeBreakdown:
+      type: object
+      properties:
+        payerAmount:
+          type: number
+        payeeReceives:
+          type: number
+        escrowFee:
+          type: number
+        networkFee:
+          type: number
+        developerFee:
+          type: number
+    DeveloperFeeBreakdown:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+        amount:
+          type: number
+        percent:
+          type: number
+        developerPiUid:
+          type: string
+        developerAppId:
+          type: string
+    DeveloperFeePolicy:
+      type: object
+      properties:
+        completionStakePercent:
+          type: number
+        completionStakeMin:
+          type: number
+        escrowFeePercent:
+          type: number
+        escrowFeeMin:
+          type: number
+        networkFee:
+          type: number
+        developerFeeMaxPercent:
+          type: number
+    DeveloperFeesRequest:
+      type: object
+      properties:
+        amount:
+          type: number
+          minimum: 0.01
+        developerFeePercent:
+          type: number
+          minimum: 0
+        currency:
+          type: string
+          default: pi
+    DeveloperFeesResponse:
+      type: object
+      properties:
+        currency:
+          type: string
+        policy:
+          $ref: '#/components/schemas/DeveloperFeePolicy'
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+        amount:
+          type: number
+        fees:
+          type: object
+          properties:
+            baseAmount:
+              type: number
+            completionStake:
+              type: number
+            escrowFee:
+              type: number
+            networkFee:
+              type: number
+            totalAmount:
+              type: number
+            payeeAmount:
+              type: number
+            developerFee:
+              $ref: '#/components/schemas/DeveloperFeeBreakdown'
+    ProviderRedirectPayload:
+      type: object
+      required:
+        - invocationId
+        - developerAppId
+        - returnUrl
+        - signature
+      properties:
+        invocationId:
+          type: string
+        developerAppId:
+          type: string
+        returnUrl:
+          type: string
+          format: uri
+        signature:
+          type: string
+        state:
+          type: string
+          nullable: true
+    ProviderPayContextResponse:
+      type: object
+      properties:
+        invocationId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+          nullable: true
+        issuedFor:
+          type: object
+          additionalProperties: true
+          nullable: true
+        developerApp:
+          type: object
+          additionalProperties: true
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeBreakdown'
+        fees:
+          type: object
+          nullable: true
+          properties:
+            baseAmount:
+              type: number
+            completionStake:
+              type: number
+            escrowFee:
+              type: number
+            networkFee:
+              type: number
+            totalAmount:
+              type: number
+            developerFee:
+              $ref: '#/components/schemas/DeveloperFeeBreakdown'
+        feePolicy:
+          $ref: '#/components/schemas/DeveloperFeePolicy'
+        providerPayload:
+          $ref: '#/components/schemas/ProviderRedirectPayload'
+        payer:
+          $ref: '#/components/schemas/PiUserRef'
+    ProviderPaySubmitRequest:
+      allOf:
+        - $ref: '#/components/schemas/ProviderRedirectPayload'
+        - type: object
+          properties:
+            amount:
+              type: number
+              minimum: 0.000001
+            memo:
+              type: string
+              maxLength: 240
+            receiverPiUsername:
+              type: string
+    ProviderPaySubmitResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        orderNo:
+          type: string
+        fees:
+          $ref: '#/components/schemas/FeeBreakdown'
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeBreakdown'
+        redirectUrl:
+          type: string
+          format: uri
+        returnPayload:
+          $ref: '#/components/schemas/ProviderRedirectPayload'
+    ProviderPayCancelRequest:
+      allOf:
+        - $ref: '#/components/schemas/ProviderRedirectPayload'
+        - type: object
+          properties:
+            message:
+              type: string
+            errorCode:
+              type: string
+    ProviderPayCancelResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        redirectUrl:
+          type: string
+          format: uri
+        returnPayload:
+          $ref: '#/components/schemas/ProviderRedirectPayload'
+          enum: [success, unsuccessful, blocked]
+        orderNo:
+          type: string
+    ProviderRedirectResponse:
+      type: object
+      properties:
+        providerRedirect:
+          type: object
+          properties:
+            url:
+              type: string
+              format: uri
+            payload:
+              $ref: '#/components/schemas/ProviderRedirectPayload'
+        invocationId:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        issuedFor:
+          type: object
+          additionalProperties: true
+          nullable: true
+        developerApp:
+          $ref: '#/components/schemas/DeveloperAppRef'
+    ProviderPayErrorRequest:
+      allOf:
+        - $ref: '#/components/schemas/ProviderRedirectPayload'
+        - type: object
+          properties:
+            message:
+              type: string
+            errorCode:
+              type: string
+    ProviderPayErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        redirectUrl:
+          type: string
+          format: uri
+        returnPayload:
+          $ref: '#/components/schemas/ProviderRedirectPayload'
+    ProviderReturnVerifyRequest:
+      type: object
+      required:
+        - developerAppId
+        - invocationId
+        - status
+        - signature
+      properties:
+        developerAppId:
+          type: string
+        invocationId:
+          type: string
+        status:
+          type: string
+          enum: [success, cancelled, error]
+        orderNo:
+          type: string
+        state:
+          type: string
+        errorCode:
+          type: string
+        message:
+          type: string
+        signature:
+          type: string
+    ProviderReturnVerifyResponse:
+      type: object
+      properties:
+        payload:
+          type: object
+          additionalProperties: true
+        signature:
+          type: string
+    DeveloperAppRef:
+      type: object
+      properties:
+        appId:
+          type: string
+        name:
+          type: string
+        contactEmail:
+          type: string
+          format: email
+        status:
+          type: string
+    DeveloperOrderActionRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [released, disputed]
+          description: Target status for the order mutation.
+        note:
+          type: string
+          maxLength: 500
+          description: Optional note that will be appended to the order's comment history.
+        actorLabel:
+          type: string
+          maxLength: 120
+          description: Overrides the default developer app label shown in EscrowPi comments/history.
+    DeveloperOrderResponse:
+      type: object
+      properties:
+        order:
+          $ref: '#/components/schemas/DeveloperOrderSnapshot'
+    DeveloperOrderSnapshot:
+      type: object
+      required:
+        - orderNo
+        - status
+        - amount
+        - payer
+        - payee
+        - developerApp
+        - payments
+        - timestamps
+      properties:
+        orderNo:
+          type: string
+        status:
+          type: string
+        amount:
+          type: number
+        baseAmount:
+          type: number
+          nullable: true
+        payer:
+          type: object
+          properties:
+            username:
+              type: string
+            piUid:
+              type: string
+        payee:
+          type: object
+          properties:
+            username:
+              type: string
+            piUid:
+              type: string
+        developerApp:
+          type: object
+          properties:
+            appId:
+              type: string
+              nullable: true
+            name:
+              type: string
+              nullable: true
+            feePercent:
+              type: number
+              nullable: true
+        payments:
+          type: object
+          properties:
+            payerToEscrow:
+              $ref: '#/components/schemas/DeveloperPaymentEdge'
+            escrowToMerchant:
+              $ref: '#/components/schemas/DeveloperPaymentEdge'
+            payerRefund:
+              $ref: '#/components/schemas/DeveloperPaymentEdge'
+        dispute:
+          type: object
+          nullable: true
+          additionalProperties: true
+        timestamps:
+          type: object
+          properties:
+            createdAt:
+              type: string
+              format: date-time
+              nullable: true
+            updatedAt:
+              type: string
+              format: date-time
+              nullable: true
+    DeveloperPaymentEdge:
+      type: object
+      nullable: true
+      properties:
+        paymentId:
+          type: string
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+    PayLogicRequest:
+      type: object
+      required:
+        - invocationId
+        - sender
+        - receiver
+        - amount
+        - piAccessToken
+      properties:
+        invocationId:
+          type: string
+        sender:
+          $ref: '#/components/schemas/PiUserRef'
+        receiver:
+          $ref: '#/components/schemas/PiUserRef'
+        amount:
+          type: number
+          minimum: 0.01
+        memo:
+          type: string
+          maxLength: 240
+        piAccessToken:
+          type: string
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+    ReceiveLogicRequest:
+      allOf:
+        - $ref: '#/components/schemas/PayLogicRequest'
+        - type: object
+          properties:
+            autoAccept:
+              type: boolean
+              default: false
+    MyEscrowLogicRequest:
+      type: object
+      required:
+        - invocationId
+        - piAccessToken
+      properties:
+        invocationId:
+          type: string
+        piAccessToken:
+          type: string
+        filters:
+          type: object
+          properties:
+            status:
+              type: string
+            role:
+              type: string
+              enum: [payer, payee]
+    LogicResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [success, unsuccessful, blocked]
+        order:
+          $ref: '#/components/schemas/EscrowOrderSummary'
+        fee:
+          $ref: '#/components/schemas/FeeBreakdown'
+        error:
+          $ref: '#/components/schemas/ErrorResponse'
+    EscrowOrderSummary:
+      type: object
+      properties:
+        orderNo:
+          type: string
+        payer:
+          $ref: '#/components/schemas/PiUserRef'
+        payee:
+          $ref: '#/components/schemas/PiUserRef'
+        status:
+          type: string
+        disputeState:
+          type: string
+        amount:
+          type: number
+        developerFee:
+          $ref: '#/components/schemas/DeveloperFeeConfig'
+    MyEscrowLogicResponse:
+      type: object
+      properties:
+        status:
+          type: string
+        orders:
+          type: array
+          items:
+            $ref: '#/components/schemas/EscrowOrderSummary'
+        disputes:
+          type: array
+          items:
+            $ref: '#/components/schemas/EscrowOrderSummary'
+    ErrorResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [unsuccessful, blocked]
+        errorCode:
+          type: string
+          enum:
+            - pi_user_invalid
+            - pi_user_validation_failed
+            - pi_user_registration_failed
+            - invalid_payload
+            - invocation_blocked
+            - invocation_expired
+            - unauthorized
+            - rate_limited
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: string
+    DeveloperAppAdminView:
+      type: object
+      properties:
+        appId:
+          type: string
+        name:
+          type: string
+        contactEmail:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [active, suspended]
+        allowedOrigins:
+          type: array
+          items:
+            type: string
+        lastUsedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DeveloperAppCredentials:
+      type: object
+      properties:
+        appId:
+          type: string
+        apiKey:
+          type: string
+    DeveloperRequest:
+      type: object
+      properties:
+        id:
+          type: string
+        requestType:
+          type: string
+          enum: [create_app, update_app, rotate_api_key]
+        developerAppId:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [requested, in_progress, approved, rejected]
+        formData:
+          type: object
+          description: Type-specific payload supplied by the pioneer (app metadata, rotation reason, etc).
+          additionalProperties: true
+        adminNotes:
+          type: string
+          nullable: true
+        handledBy:
+          type: string
+          nullable: true
+        resolvedAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    DeveloperRequestResponse:
+      type: object
+      properties:
+        request:
+          $ref: '#/components/schemas/DeveloperRequest'
+    DeveloperRequestListResponse:
+      type: object
+      properties:
+        requests:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeveloperRequest'
+    DeveloperRequestCreateRequest:
+      type: object
+      required: [requestType, formData]
+      properties:
+        requestType:
+          type: string
+          enum: [create_app, update_app, rotate_api_key]
+        developerAppId:
+          type: string
+          description: Required when requestType is update_app or rotate_api_key.
+        formData:
+          type: object
+          description: |
+            Type-specific structured payload. Create/update requests accept fields like appName, description,
+            contactEmail, allowedOrigins, and notes. App name and contactEmail are required when requestType is create_app.
+            Rotation requests accept reason/urgency strings.
+          properties:
+            appName:
+              type: string
+            description:
+              type: string
+            contactEmail:
+              type: string
+              format: email
+              description: Required when requestType is create_app.
+            allowedOrigins:
+              type: array
+              items:
+                type: string
+            notes:
+              type: string
+            reason:
+              type: string
+            urgency:
+              type: string
+          additionalProperties: true
+    AdminUser:
+      type: object
+      properties:
+        piUid:
+          type: string
+        piUsername:
+          type: string
+        userName:
+          type: string
+        isAdmin:
+          type: boolean

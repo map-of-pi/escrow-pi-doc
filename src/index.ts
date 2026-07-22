@@ -1,11 +1,13 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import cors from "cors";
 import swaggerUi from "swagger-ui-express";
 import swaggerJsdoc from "swagger-jsdoc";
+import YAML from "yaml";
 
 import { swaggerOptions } from "./config/swagger";
-import escrowComponentsRoutes from "./routes/escrow-components.routes";
+// import escrowComponentsRoutes from "./routes/escrow-components.routes";
 import homeRoutes from "./routes/home.routes";
 
 const app = express();
@@ -16,8 +18,10 @@ app.use(cors());
 
 app.use(express.static(path.join(__dirname, "../public")));
 
-// Swagger setup
-const swaggerSpec = swaggerJsdoc(swaggerOptions);
+const openapiPath = path.resolve(process.cwd(), "openapi/escrowpi.yaml");
+const swaggerSpec = fs.existsSync(openapiPath)
+  ? YAML.parse(fs.readFileSync(openapiPath, "utf8"))
+  : swaggerJsdoc(swaggerOptions);
 
 app.get("/swagger.json", (req, res) => {
   res.setHeader("Content-Type", "application/json");
@@ -93,7 +97,7 @@ app.get("/api-docs_", (req, res) => {
 });
 
 // API routes
-app.use("/api/escrow-components", escrowComponentsRoutes);
+// app.use("/api/escrow-components", escrowComponentsRoutes);
 app.use("/", homeRoutes);
 
 app.listen(PORT, () => {
