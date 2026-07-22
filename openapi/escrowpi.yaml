@@ -405,6 +405,47 @@ paths:
                 $ref: '#/components/schemas/ErrorResponse'
         '429':
           $ref: '#/components/responses/RateLimited'
+  /api/v1/developer/orders/{orderNo}/status:
+    post:
+      summary: Update developer order status
+      description: Allows a developer app to transition its order to supported statuses such as `released` or `disputed`.
+      tags: [Orders]
+      operationId: updateDeveloperOrderStatus
+      security:
+        - AppIdHeader: []
+          ApiKeyHeader: []
+      parameters:
+        - name: orderNo
+          in: path
+          required: true
+          schema:
+            type: string
+          description: Public EscrowPi order number.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeveloperOrderActionRequest'
+      responses:
+        '200':
+          description: Order status updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeveloperOrderResponse'
+        '400':
+          $ref: '#/components/responses/InvalidPayload'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Order not found for this developer app
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
   /api/v1/developer/requests:
     get:
       summary: List developer requests
@@ -1406,6 +1447,23 @@ components:
           format: email
         status:
           type: string
+    DeveloperOrderActionRequest:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          enum: [released, disputed]
+          description: Target status for the order mutation.
+        note:
+          type: string
+          maxLength: 500
+          description: Optional note that will be appended to the order's comment history.
+        actorLabel:
+          type: string
+          maxLength: 120
+          description: Overrides the default developer app label shown in EscrowPi comments/history.
     DeveloperOrderResponse:
       type: object
       properties:
